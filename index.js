@@ -17,7 +17,7 @@ const kDataCloneDeserializationError = 'Unable to deserialize cloned data.';
 
 function BytesNeededForVarint(value) {
   assert(Number.isInteger(value) && value >= 0);
-  let result = 0;  
+  let result = 0;
   do {
     result++;
     value >>= 7;
@@ -297,13 +297,13 @@ class ValueSerializer  {
   }
 
   WriteString(string) {
-    if (Buffer.byteLength(string, 'latin1') === string.length) {
+    if (Buffer.byteLength(string, 'utf8') === string.length) {
       this.WriteTag(SerializationTag.kOneByteString);
       return this.WriteOneByteString(string);
     } else {
       const byte_length = Buffer.byteLength(string, 'utf16le');
       if ((this.written_bytes_ + 1 +
-           this.BytesNeededForVarint(byte_length)) & 1) {
+           BytesNeededForVarint(byte_length)) & 1) {
         this.WriteTag(SerializationTag.kPadding);
       }
       this.WriteTag(SerializationTag.kTwoByteString);
@@ -321,7 +321,7 @@ class ValueSerializer  {
 
     id = this.next_id_++;
     this.id_map_.set(object, id + 1);
-    
+
     const tag = Object.prototype.toString.call(object);
     if (ArrayBufferViewTags.has(tag)) {
       if (!this.treat_array_buffer_views_as_host_objects_) {
@@ -449,7 +449,7 @@ class ValueSerializer  {
       return this.WriteHostObject(abv);
 
     this.WriteTag(SerializationTag.kArrayBufferView);
-    this.WriteVarint(ArrayBufferViewTags[name]);
+    this.WriteVarint(ArrayBufferViewTag[name]);
     this.WriteVarint(abv.byteOffset);
     this.WriteVarint(abv.byteLength);
   }
@@ -464,11 +464,14 @@ class ValueSerializer  {
 
   WriteJSObjectPropertiesSlow(object, skipNumericProperties = false) {
     const keys = Object.keys(object);
+    let count = 0;
     for (let i = 0; i < keys.length; ++i) {
+      if (skipNumericProperties && /^\d+$/.test(keys[i])) continue;
       this.WriteObject(keys[i]);
       this.WriteObject(object[keys[i]]);
+      ++count;
     }
-    return keys.length;
+    return count;
   }
 
   ThrowDataCloneError(template, object) {
@@ -541,7 +544,7 @@ class ValueDeserializer {
     do {
       value += (this.byte_ & 0x7f) * multiplier;
       multiplier *= 128;
-      has_another_byte = this._byte & 0x80;
+      has_another_byte = this.byte_ & 0x80;
       this.position_++;
     } while (has_another_byte);
 
@@ -612,15 +615,15 @@ class ValueDeserializer {
   }
 
   TransferArrayBuffer(transfer_id, array_buffer) {
-    assert(!this.array_buffer_transfer_map_.has(array_buffer));
-    this.array_buffer_transfer_map_.set(array_buffer, transfer_id);
+    assert(!this.array_buffer_transfer_map_.has(transfer_id));
+    this.array_buffer_transfer_map_.set(transfer_id, array_buffer);
   }
 
   ReadObject() {
     if (this.position_ > this.end_)
       throw new Error(kDataCloneDeserializationError);
 
-    let result = this.ReadObject();
+    let result = this.ReadObjectInternal();
     if (Object.prototype.toString.call(result) === '[object ArrayBuffer]' &&
         this.PeekTag() === SerializationTag.kArrayBufferView) {
       this.ConsumeTag();
@@ -629,7 +632,7 @@ class ValueDeserializer {
     return result;
   }
 
-  ReadObject() {
+  ReadObjectInternal() {
     const tag = this.ReadTag();
     switch (tag) {
       case SerializationTag.kVerifyObjectCount:
@@ -729,7 +732,8 @@ class ValueDeserializer {
   ReadSparseJSArray() {
     const length = this.ReadVarint();
     const id = this.next_id_++;
-    const array = new Array();
+    const array = new Array(length);
+    this.id_map_.set(id, array);
 
     const num_properties =
         this.ReadJSObjectProperties(array,
@@ -741,14 +745,14 @@ class ValueDeserializer {
       throw new Error(kDataCloneDeserializationError);
     }
 
-    assert(this.id_map_.has(id));
     return array;
   }
 
   ReadDenseJSArray() {
     const length = this.ReadVarint();
     const id = this.next_id_++;
-    const array = new Array();
+    const array = new Array(length);
+    this.id_map_.set(id, array);
 
     for (let i = 0; i < length; ++i) {
       if (this.PeekTag() === SerializationTag.kTheHole) {
@@ -803,7 +807,7 @@ class ValueDeserializer {
     const id = this.next_id_++;
     const pattern = this.ReadString();
     const flags = RegexpFlagsFromInteger(this.ReadVarint());
-    const v = new RegExp(patter, flags);
+    const v = new RegExp(pattern, flags);
     this.id_map_.set(id, v);
     return v;
   }
