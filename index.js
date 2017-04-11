@@ -34,6 +34,19 @@ function Integerify(obj) {
   return obj;
 }
 
+let BufferFromTypedArray;
+const kNodeMajor = +process.version.split('.')[0].slice(1);
+
+if (kNodeMajor >= 6) {
+  BufferFromTypedArray = Buffer.from;
+} else {
+  BufferFromTypedArray = function (ab, offset, length) {
+    const ret = new Uint8Array(ab, offset, length);
+    Object.setPrototypeOf(ret, Buffer.prototype);
+    return ret;
+  }
+}
+
 const SerializationTag = Integerify({
   // version:uint32_t (if at beginning of data, sets version > 0)
   kVersion: 0xFF,
@@ -170,9 +183,9 @@ function RegexpFlagsFromInteger(v) {
 }
 
 class ValueSerializer  {
-  constructor(delegate = null) {
+  constructor(delegate) {
     this.id_map_ = new Map();
-    this.delegate_ = delegate;
+    this.delegate_ = delegate || null;
     this.next_id_ = 0;
     this.array_buffer_transfer_map_ = new Map();
     this.treat_array_buffer_views_as_host_objects_ = false;
@@ -219,7 +232,7 @@ class ValueSerializer  {
 
   WriteOneByteString(chars) {
     this.WriteVarint(chars.length);
-    this.WriteRawBytes(Buffer.from(chars, 'latin1'));
+    this.WriteRawBytes(Buffer.from(chars, 'binary'));
   }
 
   WriteTwoByteString(chars) {
@@ -229,7 +242,9 @@ class ValueSerializer  {
 
   WriteRawBytes(buffer) {
     if (Object.getPrototypeOf(buffer) !== Buffer.prototype) {
-      buffer = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      buffer = BufferFromTypedArray(buffer.buffer,
+                                    buffer.byteOffset,
+                                    buffer.byteLength);
     }
     this.written_bytes_ += buffer.length;
     this.delegate_[kPush](buffer);
@@ -411,9 +426,9 @@ class ValueSerializer  {
   WriteJSMap(map) {
     this.WriteTag(SerializationTag.kBeginJSMap);
     let length = 0;
-    for (const [key, value] of map) {
-      this.WriteObject(key);
-      this.WriteObject(value);
+    for (const entry of map) {
+      this.WriteObject(entry[0]);
+      this.WriteObject(entry[1]);
       length += 2;
     }
     this.WriteTag(SerializationTag.kEndJSMap);
@@ -441,7 +456,7 @@ class ValueSerializer  {
 
     this.WriteTag(SerializationTag.kArrayBuffer);
     this.WriteVarint(ab.byteLength);
-    this.WriteRawBytes(Buffer.from(ab, 0, ab.byteLength));
+    this.WriteRawBytes(BufferFromTypedArray(ab, 0, ab.byteLength));
   }
 
   WriteJSArrayBufferView(abv, name) {
@@ -462,7 +477,8 @@ class ValueSerializer  {
     this.ThrowDataCloneError(kDataCloneError, object);
   }
 
-  WriteJSObjectPropertiesSlow(object, skipNumericProperties = false) {
+  // skipNumericProperties is implicitly optional here.
+  WriteJSObjectPropertiesSlow(object, skipNumericProperties) {
     const keys = Object.keys(object);
     let count = 0;
     for (let i = 0; i < keys.length; ++i) {
@@ -485,14 +501,14 @@ class ValueSerializer  {
 }
 
 class ValueDeserializer {
-  constructor(buffer, delegate = null) {
+  constructor(buffer, delegate) {
     this.id_map_ = new Map();
-    this.delegate_ = delegate;
+    this.delegate_ = delegate || null;
     this.next_id_ = 0;
     this.array_buffer_transfer_map_ = new Map();
-    this.buffer_ = Buffer.from(buffer.buffer,
-                               buffer.byteOffset,
-                               buffer.byteLength);
+    this.buffer_ = BufferFromTypedArray(buffer.buffer,
+                                        buffer.byteOffset,
+                                        buffer.byteLength);
     this.position_ = 0;
     this.version_ = 0;
   }
@@ -709,7 +725,7 @@ class ValueDeserializer {
 
   ReadOneByteString() {
     const utf8_length = this.ReadVarint();
-    return this.ReadRawBytes(utf8_length).toString('latin1');
+    return this.ReadRawBytes(utf8_length).toString('binary');
   }
 
   ReadTwoByteString() {
@@ -1065,13 +1081,15 @@ const arrayBufferViewTypeToIndex = new Map();
 
 {
   const dummy = new ArrayBuffer();
-  for (const [i, ctor] of ArrayBufferViewTypes.entries()) {
+  for (const entry of ArrayBufferViewTypes.entries()) {
+    const ctor = entry[1];
     const tag = Object.prototype.toString.call(new ctor(dummy));
-    arrayBufferViewTypeToIndex.set(tag, i);
+    arrayBufferViewTypeToIndex.set(tag, entry[0]);
   }
 }
 
-const bufferConstructorIndex = ArrayBufferViewTypes.push(Buffer) - 1;
+const bufferConstructorIndex =
+    ArrayBufferViewTypes.push(BufferFromTypedArray) - 1;
 
 class DefaultSerializer extends NodeBindingSerializer {
   constructor() {

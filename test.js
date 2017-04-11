@@ -1,6 +1,9 @@
 'use strict';
 const common = {
-  mustCall(fn, n=1) {
+  mustCall(fn, n) {
+    if (n === undefined)
+      n = 1;
+
     let count = 0;
     process.on('exit', () => {
       assert.strictEqual(count, n);
@@ -40,13 +43,18 @@ const objects = [
   new String(''),
   new String('abc'),
   -1e30,
-  /abc/, /abc/u, /abc/y, /abc/g, /abc/i, /abc/m,
+  /abc/, /abc/g, /abc/i, /abc/m,
   1 << 29, 1 << 30, 1 << 31,
   [1,2,3],
   new Date(),
   new Map([[1,2],[3,4]]),
   new Set([1,2,3])
 ];
+
+try {
+  // Node >= 6
+  objects.push(/abc/u, /abc/y);
+} catch (e) {}
 
 {
   const ser = new serdes.DefaultSerializer();

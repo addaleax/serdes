@@ -1,7 +1,7 @@
 {
   "name": "serdes",
   "version": "1.0.0",
-  "description": "",
+  "description": "Polyfill for the Node.js 8.x serializer API",
   "main": "index.js",
   "scripts": {
     "test": "nyc node test.js"
@@ -11,5 +11,21 @@
   "license": "MIT",
   "devDependencies": {
     "nyc": "^10.2.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/addaleax/serdes.git"
+  },
+  "keywords": [
+    "serialize",
+    "deserialize",
+    "serdes",
+    "polyfill"
+  ],
+  "author": "Anna Henningsen <anna@addaleax.net>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/addaleax/serdes/issues"
+  },
+  "homepage": "https://github.com/addaleax/serdes#readme"
 }
